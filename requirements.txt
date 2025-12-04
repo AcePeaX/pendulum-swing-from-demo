@@ -1,5 +1,12 @@
 gymnasium[classic-control]
+gymnasium[other]
 numpy
 scipy
 matplotlib
+control
 tqdm
+ipykernel
+stable-baselines3
+tqdm
+rich
+ipywidgets
