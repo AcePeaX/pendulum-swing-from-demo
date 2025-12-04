@@ -11,3 +11,5 @@ tqdm
 rich
 ipywidgets
 pybullet
+pin-pink
+qpsolvers[quadprog]
