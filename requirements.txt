@@ -10,3 +10,4 @@ stable-baselines3
 tqdm
 rich
 ipywidgets
+pybullet
