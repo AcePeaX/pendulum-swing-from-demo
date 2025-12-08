@@ -59,6 +59,8 @@ robot_id = p.loadURDF(
 x_slider = p.addUserDebugParameter("Target x", -2, 2, 0.5)
 y_slider = p.addUserDebugParameter("Target y", -2, 2, 0.5)
 z_slider = p.addUserDebugParameter("Target z",  0.02, 2.0, 0.6)
+reset_pendulum_slider = p.addUserDebugParameter("Reset pendulum (toggle)", -1, 1, 0)
+reset_slider_prev = 0.0
 
 
 # Target desired
@@ -110,7 +112,7 @@ pend_constraint = p.createConstraint(
     childFramePosition=[0, 0, 0],
 )
 p.changeConstraint(pend_constraint, maxForce=1e6)
-p.changeDynamics(pendulum_id, -1, linearDamping=0.09, angularDamping=0.6)
+p.changeDynamics(pendulum_id, -1, linearDamping=0.11, angularDamping=0.7)
 p.setJointMotorControl2(
     pendulum_id,
     0,
@@ -123,8 +125,23 @@ for link_idx in range(n_joints):
     p.setCollisionFilterPair(robot_id, pendulum_id, link_idx, -1, enableCollision=0)
 p.setCollisionFilterPair(pendulum_id, plane, -1, -1, enableCollision=0)
 
-Kp = np.array([120, 80, 60, 45, 30, 20, 12], dtype=float)
-Kd = np.array([18, 14, 12, 10, 8, 6, 4], dtype=float)
+
+def reset_pendulum_state(inverted=False):
+    anchor = p.getLinkState(robot_id, pendulum_parent_link, computeForwardKinematics=True)
+    anchor_pos = anchor[4]
+    if inverted:
+        orientation = [1, 0, 0, 0]
+    else:
+        orientation = [0, 0, 0, 1]
+    p.resetBasePositionAndOrientation(pendulum_id, anchor_pos, orientation)
+    p.resetBaseVelocity(pendulum_id, [0, 0, 0], [0, 0, 0])
+
+
+reset_pendulum_state()
+
+
+Kp = np.array([120, 80, 60, 45, 30, 20, 12], dtype=float)  * 0.8
+Kd = np.array([18, 14, 12, 10, 8, 6, 4], dtype=float) * 1.2
 max_tau = np.array([180, 150, 120, 90, 60, 40, 25], dtype=float)
 
 full_model = pin.buildModelFromUrdf(robot_urdf_path)
@@ -211,6 +228,12 @@ while True:
     x_des = p.readUserDebugParameter(x_slider)
     y_des = p.readUserDebugParameter(y_slider)
     z_des = p.readUserDebugParameter(z_slider)
+    reset_val = p.readUserDebugParameter(reset_pendulum_slider)
+    if reset_val > 0.5 and reset_slider_prev <= 0.5:
+        reset_pendulum_state(inverted=False)
+    elif reset_val < -0.5 and reset_slider_prev >= -0.5:
+        reset_pendulum_state(inverted=True)
+    reset_slider_prev = reset_val
 
     target_pos = [x_des, y_des, z_des]
 
