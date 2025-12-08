@@ -110,7 +110,14 @@ pend_constraint = p.createConstraint(
     childFramePosition=[0, 0, 0],
 )
 p.changeConstraint(pend_constraint, maxForce=1e6)
-p.changeDynamics(pendulum_id, -1, linearDamping=0.01, angularDamping=0.1)
+p.changeDynamics(pendulum_id, -1, linearDamping=0.09, angularDamping=0.6)
+p.setJointMotorControl2(
+    pendulum_id,
+    0,
+    controlMode=p.VELOCITY_CONTROL,
+    force=0,
+    targetVelocity=0
+)
 p.setCollisionFilterPair(robot_id, pendulum_id, -1, -1, enableCollision=0)
 for link_idx in range(n_joints):
     p.setCollisionFilterPair(robot_id, pendulum_id, link_idx, -1, enableCollision=0)
