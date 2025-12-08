@@ -85,64 +85,24 @@ for i in range(n_joints):
     if info[2] == p.JOINT_REVOLUTE:
         joint_name_to_index[name] = i
 
-# Replace URDF pendulum with a P2P-constrained body to decouple rotation.
-# Remove any existing pendulum joints from control.
-pendulum_yaw_id = joint_name_to_index.get("pendulum_yaw_joint")
-pendulum_pitch_id = joint_name_to_index.get("pendulum_pitch_joint")
-pendulum_parent_link = joint_name_to_index.get("lbr_iiwa_joint_7", n_joints - 1)
-
-pend_length = 0.35
-pend_radius = 0.015
-pend_mass = 0.5
-
-pend_col = p.createCollisionShape(
-    p.GEOM_CYLINDER,
-    radius=pend_radius,
-    height=pend_length,
-    collisionFramePosition=[0, 0, -pend_length * 0.5],
-)
-pend_vis = p.createVisualShape(
-    p.GEOM_CYLINDER,
-    radius=pend_radius,
-    length=pend_length,
-    rgbaColor=[0.5, 0.5, 0.5, 1.0],
-    visualFramePosition=[0, 0, -pend_length * 0.5],
-)
-pend_vis_ball = p.createVisualShape(
-    p.GEOM_SPHERE,
-    radius=pend_radius * 1.5,
-    rgbaColor=[1, 0, 0, 1.0],
-    visualFramePosition=[0, 0, -pend_length],
-)
-
-pendulum_body = p.createMultiBody(
-    baseMass=pend_mass,
-    baseCollisionShapeIndex=pend_col,
-    baseVisualShapeIndex=pend_vis,
+# Load standalone pendulum and attach via spherical constraint
+pendulum_urdf_path = os.path.abspath("pendulum.urdf")
+pendulum_id = p.loadURDF(
+    pendulum_urdf_path,
     basePosition=[0, 0, 0],
     baseOrientation=[0, 0, 0, 1],
-    linkMasses=[0],
-    linkCollisionShapeIndices=[-1],
-    linkVisualShapeIndices=[pend_vis_ball],
-    linkPositions=[[0, 0, 0]],
-    linkOrientations=[[0, 0, 0, 1]],
-    linkInertialFramePositions=[[0, 0, 0]],
-    linkInertialFrameOrientations=[[0, 0, 0, 1]],
-    linkParentIndices=[0],
-    linkJointTypes=[p.JOINT_FIXED],
-    linkJointAxis=[[0, 0, 0]],
-    useMaximalCoordinates=False,
+    useFixedBase=False
 )
+pendulum_parent_link = joint_name_to_index.get("lbr_iiwa_joint_7", n_joints - 1)
 
-# place pendulum at wrist position to avoid impulse at constraint creation
 anchor_state = p.getLinkState(robot_id, pendulum_parent_link, computeForwardKinematics=True)
 anchor_pos = anchor_state[4]
-p.resetBasePositionAndOrientation(pendulum_body, anchor_pos, [0, 0, 0, 1])
+p.resetBasePositionAndOrientation(pendulum_id, anchor_pos, [0, 0, 0, 1])
 
 pend_constraint = p.createConstraint(
     parentBodyUniqueId=robot_id,
     parentLinkIndex=pendulum_parent_link,
-    childBodyUniqueId=pendulum_body,
+    childBodyUniqueId=pendulum_id,
     childLinkIndex=-1,
     jointType=p.JOINT_POINT2POINT,
     jointAxis=[0, 0, 0],
@@ -150,25 +110,11 @@ pend_constraint = p.createConstraint(
     childFramePosition=[0, 0, 0],
 )
 p.changeConstraint(pend_constraint, maxForce=1e6)
-p.changeDynamics(pendulum_body, -1, linearDamping=0.01, angularDamping=0.1)
-p.setCollisionFilterPair(robot_id, pendulum_body, -1, -1, enableCollision=0)
+p.changeDynamics(pendulum_id, -1, linearDamping=0.01, angularDamping=0.1)
+p.setCollisionFilterPair(robot_id, pendulum_id, -1, -1, enableCollision=0)
 for link_idx in range(n_joints):
-    p.setCollisionFilterPair(robot_id, pendulum_body, link_idx, -1, enableCollision=0)
-if pendulum_yaw_id is not None:
-    p.setJointMotorControl2(robot_id, pendulum_yaw_id, p.VELOCITY_CONTROL, force=0)
-if pendulum_pitch_id is not None:
-    p.setJointMotorControl2(robot_id, pendulum_pitch_id, p.VELOCITY_CONTROL, force=0)
-
-pendulum_yaw_id = joint_name_to_index.get("pendulum_yaw_joint")
-pendulum_pitch_id = joint_name_to_index.get("pendulum_pitch_joint")
-for pid in [pendulum_yaw_id, pendulum_pitch_id]:
-    if pid is not None:
-        p.setJointMotorControl2(
-            robot_id,
-            pid,
-            controlMode=p.VELOCITY_CONTROL,
-            force=0
-        )
+    p.setCollisionFilterPair(robot_id, pendulum_id, link_idx, -1, enableCollision=0)
+p.setCollisionFilterPair(pendulum_id, plane, -1, -1, enableCollision=0)
 
 Kp = np.array([120, 80, 60, 45, 30, 20, 12], dtype=float)
 Kd = np.array([18, 14, 12, 10, 8, 6, 4], dtype=float)
@@ -177,16 +123,7 @@ max_tau = np.array([180, 150, 120, 90, 60, 40, 25], dtype=float)
 full_model = pin.buildModelFromUrdf(robot_urdf_path)
 full_data = full_model.createData()
 full_joint_names = list(full_model.names)[1:]
-pend_joints_pin = [
-    full_model.getJointId(name)
-    for name in ["pendulum_yaw_joint", "pendulum_pitch_joint"]
-    if name in full_model.names
-]
-reduced_model = pin.buildReducedModel(
-    full_model,
-    pend_joints_pin,
-    pin.neutral(full_model)
-)
+reduced_model = full_model
 data = reduced_model.createData()
 q0 = pin.neutral(reduced_model)
 configuration = pink.Configuration(reduced_model, data, q0)
@@ -194,7 +131,7 @@ model_joint_names = list(reduced_model.names)[1:]
 lower_limits = reduced_model.lowerPositionLimit
 upper_limits = reduced_model.upperPositionLimit
 joint_ids = [joint_name_to_index[name] for name in model_joint_names]
-full_arm_indices = [idx for idx, name in enumerate(full_joint_names) if "pendulum" not in name]
+full_arm_indices = [full_joint_names.index(name) for name in model_joint_names]
 n = len(joint_ids)
 print("Number of controlled joints:", n)
 
@@ -205,6 +142,11 @@ for j in joint_ids:
         controlMode=p.VELOCITY_CONTROL,
         force=0
     )
+
+# Align gains to controlled joints
+Kp = Kp[:n]
+Kd = Kd[:n]
+max_tau = max_tau[:n]
 
 ee_link_name = "pendulum_anchor_link"
 
@@ -249,6 +191,11 @@ while True:
         dtype=float
     )
     q_model = wrap_joint_positions(q_model, lower_limits, upper_limits)
+    q_full = np.array(
+        [p.getJointState(robot_id, joint_name_to_index[name])[0] for name in full_joint_names],
+        dtype=float
+    )
+    q_full = wrap_joint_positions(q_full, full_model.lowerPositionLimit, full_model.upperPositionLimit)
 
     configuration = pink.Configuration(reduced_model, data, q_model.copy())
     posture_task.set_target(configuration.q.copy())
@@ -291,10 +238,7 @@ while True:
     tau_full = pin.rnea(
         full_model,
         full_data,
-        q_model_full := np.array(
-            [p.getJointState(robot_id, joint_name_to_index[name])[0] for name in full_joint_names],
-            dtype=float
-        ),
+        q_full,
         np.zeros(full_model.nv),
         np.zeros(full_model.nv)
     )
