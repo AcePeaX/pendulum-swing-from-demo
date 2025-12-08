@@ -13,3 +13,4 @@ ipywidgets
 pybullet
 pin-pink
 qpsolvers[quadprog]
+robot_descriptions
