@@ -125,16 +125,28 @@ for link_idx in range(n_joints):
     p.setCollisionFilterPair(robot_id, pendulum_id, link_idx, -1, enableCollision=0)
 p.setCollisionFilterPair(pendulum_id, plane, -1, -1, enableCollision=0)
 
+pend_axis_angle = 0.0
+
 
 def reset_pendulum_state(inverted=False):
+    global pend_axis_angle
     anchor = p.getLinkState(robot_id, pendulum_parent_link, computeForwardKinematics=True)
     anchor_pos = anchor[4]
-    if inverted:
-        orientation = [1, 0, 0, 0]
-    else:
-        orientation = [0, 0, 0, 1]
+    pend_axis_angle = np.pi if inverted else 0.0
+    orientation = p.getQuaternionFromEuler([pend_axis_angle, 0.0, 0.0])
     p.resetBasePositionAndOrientation(pendulum_id, anchor_pos, orientation)
     p.resetBaseVelocity(pendulum_id, [0, 0, 0], [0, 0, 0])
+
+
+def enforce_single_axis_rotation(dt):
+    global pend_axis_angle
+    pend_pos, _ = p.getBasePositionAndOrientation(pendulum_id)
+    lin_vel, ang_vel = p.getBaseVelocity(pendulum_id)
+    pend_axis_angle += ang_vel[0] * dt
+    constrained_quat = p.getQuaternionFromEuler([pend_axis_angle, 0.0, 0.0])
+    p.resetBasePositionAndOrientation(pendulum_id, pend_pos, constrained_quat)
+    constrained_ang_vel = [ang_vel[0], 0.0, 0.0]
+    p.resetBaseVelocity(pendulum_id, lin_vel, constrained_ang_vel)
 
 
 reset_pendulum_state()
@@ -297,4 +309,5 @@ while True:
             force=float(tau[idx])
         )
     p.stepSimulation()
+    enforce_single_axis_rotation(dt)
     time.sleep(dt)
