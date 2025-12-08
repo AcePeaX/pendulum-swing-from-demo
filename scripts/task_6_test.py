@@ -140,9 +140,13 @@ def reset_pendulum_state(inverted=False):
 reset_pendulum_state()
 
 
-Kp = np.array([120, 80, 60, 45, 30, 20, 12], dtype=float)  * 0.8
-Kd = np.array([18, 14, 12, 10, 8, 6, 4], dtype=float) * 1.2
+Kp_base = np.array([120, 80, 60, 45, 30, 20, 12], dtype=float)
+Kd_base = np.array([18, 14, 12, 10, 8, 6, 4], dtype=float)
+controller_gain_scale = 0.6
+Kp = controller_gain_scale * Kp_base
+Kd = controller_gain_scale * Kd_base
 max_tau = np.array([180, 150, 120, 90, 60, 40, 25], dtype=float)
+joint_damping = 0.05
 
 full_model = pin.buildModelFromUrdf(robot_urdf_path)
 full_data = full_model.createData()
@@ -167,6 +171,13 @@ for j in joint_ids:
         force=0
     )
 
+for link_idx in range(-1, n_joints):
+    p.changeDynamics(
+        robot_id,
+        link_idx,
+        jointDamping=joint_damping
+    )
+
 # Align gains to controlled joints
 Kp = Kp[:n]
 Kd = Kd[:n]
@@ -179,7 +190,7 @@ ee_task = FrameTask(
     position_cost=1.0,
     orientation_cost=0.0,
 )
-ee_task.gain = 40.0
+ee_task.gain = 25.0
 print("Task gain:",ee_task.gain)
 
 # Posture regularization
