@@ -66,6 +66,7 @@ class Task7PendulumEnv(gym.Env):
         render_mode=None,
         initial_pendulum_angle=None,
         continuous_actions=False,
+        verbose=False,
     ):
         super().__init__()
         self.gui = gui
@@ -78,10 +79,12 @@ class Task7PendulumEnv(gym.Env):
             float(initial_pendulum_angle) if initial_pendulum_angle is not None else None
         )
         self.continuous_actions = bool(continuous_actions)
+        self.verbose = bool(verbose)
         self.dt = 1.0 / 240.0
         self.ik_integration_gain = 9.0
         self.action_speed_scale = 0.0
-        self.client = p.connect(p.GUI if gui else p.DIRECT)
+        connect_opts = None if self.verbose else "--minLoggingLevel=3"
+        self.client = p.connect(p.GUI if gui else p.DIRECT, options=connect_opts)
         p.resetSimulation()
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         self._build_world()
