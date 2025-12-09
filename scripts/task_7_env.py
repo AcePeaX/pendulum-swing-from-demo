@@ -65,25 +65,10 @@ robot_id = p.loadURDF(
 target_x = 0.5
 target_z = 0.6
 target_y_default = 0.0
-y_slider = p.addUserDebugParameter("Target y", -0.5, 0.5, target_y_default)
-reset_pendulum_slider = p.addUserDebugParameter("Reset pendulum (toggle)", -1, 1, 0)
-save_state_slider = p.addUserDebugParameter("Save robot state", 0, 1, 0)
-load_state_slider = p.addUserDebugParameter("Load saved state", 0, 1, 0)
-reset_env_slider = p.addUserDebugParameter("Reset from saved pose", 0, 1, 0)
-reset_slider_prev = 0.0
-save_slider_prev = 0.0
-load_slider_prev = 0.0
-reset_env_prev = 0.0
 default_joint_pose = np.array([0.5499, 0.3302, -0.7612, -1.5311, 0.4585, 1.4043, -0.0314], dtype=float)
-saved_state = {
-    "joint_positions": default_joint_pose.copy(),
-    "joint_velocities": np.zeros_like(default_joint_pose),
-    "pend_axis_angle": -0.0003,
-    "pend_linear_velocity": [0.0, 0.0, 0.0],
-    "pend_angular_velocity": [0.0, 0.0, 0.0],
-    "pendulum_position": [0.0, 0.0, 0.0],
-    "pendulum_orientation": [0.0, 0.0, 0.0, 1.0],
-}
+y_slider = p.addUserDebugParameter("Target y", -0.5, 0.5, target_y_default)
+respawn_slider = p.addUserDebugParameter("Reset environment", 0, 1, 0)
+respawn_prev = 0.0
 
 
 # Target desired
@@ -136,115 +121,12 @@ pend_constraint = p.createConstraint(
 )
 p.changeConstraint(pend_constraint, maxForce=1e6)
 p.changeDynamics(pendulum_id, -1, linearDamping=0.11, angularDamping=0.7)
-p.setJointMotorControl2(
-    pendulum_id,
-    0,
-    controlMode=p.VELOCITY_CONTROL,
-    force=0,
-    targetVelocity=0
-)
 p.setCollisionFilterPair(robot_id, pendulum_id, -1, -1, enableCollision=0)
 for link_idx in range(n_joints):
     p.setCollisionFilterPair(robot_id, pendulum_id, link_idx, -1, enableCollision=0)
 p.setCollisionFilterPair(pendulum_id, plane, -1, -1, enableCollision=0)
 
 pend_axis_angle = 0.0
-
-
-def reset_pendulum_state(inverted=False):
-    global pend_axis_angle
-    anchor = p.getLinkState(robot_id, pendulum_parent_link, computeForwardKinematics=True)
-    anchor_pos = anchor[4]
-    base_angle = np.pi if inverted else 0.0
-    if inverted:
-        eps = np.random.uniform(-0.005, 0.005)
-        pend_axis_angle = base_angle + eps
-    else:
-        pend_axis_angle = base_angle
-    orientation = p.getQuaternionFromEuler([pend_axis_angle, 0.0, 0.0])
-    p.resetBasePositionAndOrientation(pendulum_id, anchor_pos, orientation)
-    p.resetBaseVelocity(pendulum_id, [0, 0, 0], [0, 0, 0])
-
-
-def enforce_single_axis_rotation(dt):
-    global pend_axis_angle
-    pend_pos, _ = p.getBasePositionAndOrientation(pendulum_id)
-    lin_vel, ang_vel = p.getBaseVelocity(pendulum_id)
-    pend_axis_angle += ang_vel[0] * dt
-    constrained_quat = p.getQuaternionFromEuler([pend_axis_angle, 0.0, 0.0])
-    p.resetBasePositionAndOrientation(pendulum_id, pend_pos, constrained_quat)
-    constrained_ang_vel = [ang_vel[0], 0.0, 0.0]
-    p.resetBaseVelocity(pendulum_id, lin_vel, constrained_ang_vel)
-
-
-def reset_environment_from_saved_state():
-    global pend_axis_angle, saved_state
-    if saved_state is None:
-        print("No saved state available for environment reset.")
-        return
-    for idx, j in enumerate(joint_ids):
-        target_q = float(saved_state["joint_positions"][idx])
-        p.resetJointState(
-            robot_id,
-            j,
-            targetValue=target_q,
-            targetVelocity=0.0
-        )
-    anchor = p.getLinkState(robot_id, pendulum_parent_link, computeForwardKinematics=True)
-    anchor_pos = anchor[4]
-    pend_axis_angle = np.pi + np.random.uniform(-0.03, 0.01)
-    orientation = p.getQuaternionFromEuler([pend_axis_angle, 0.0, 0.0])
-    p.resetBasePositionAndOrientation(pendulum_id, anchor_pos, orientation)
-    p.resetBaseVelocity(pendulum_id, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0])
-    print(
-        "Environment reset: joints=",
-        np.round(saved_state["joint_positions"], 4),
-        "pend_angle=%.4f" % pend_axis_angle
-    )
-
-
-def capture_current_state():
-    joint_positions = [p.getJointState(robot_id, j)[0] for j in joint_ids]
-    joint_velocities = [p.getJointState(robot_id, j)[1] for j in joint_ids]
-    pend_pos, pend_quat = p.getBasePositionAndOrientation(pendulum_id)
-    pend_lin, pend_ang = p.getBaseVelocity(pendulum_id)
-    return {
-        "joint_positions": joint_positions,
-        "joint_velocities": joint_velocities,
-        "pend_axis_angle": pend_axis_angle,
-        "pend_linear_velocity": pend_lin,
-        "pend_angular_velocity": pend_ang,
-        "pendulum_position": pend_pos,
-        "pendulum_orientation": pend_quat,
-    }
-
-
-def apply_saved_state(state):
-    global pend_axis_angle
-    if state is None:
-        return
-    for idx, j in enumerate(joint_ids):
-        q_val = state["joint_positions"][idx]
-        qd_val = state["joint_velocities"][idx]
-        p.resetJointState(
-            robot_id,
-            j,
-            targetValue=float(q_val),
-            targetVelocity=float(qd_val)
-        )
-    anchor = p.getLinkState(robot_id, pendulum_parent_link, computeForwardKinematics=True)
-    anchor_pos = anchor[4]
-    pend_axis_angle = state.get("pend_axis_angle", 0.0)
-    orientation = p.getQuaternionFromEuler([pend_axis_angle, 0.0, 0.0])
-    p.resetBasePositionAndOrientation(pendulum_id, anchor_pos, orientation)
-    pend_lin = state.get("pend_linear_velocity", [0.0, 0.0, 0.0])
-    pend_ang = state.get("pend_angular_velocity", [0.0, 0.0, 0.0])
-    constrained_ang = [pend_ang[0], 0.0, 0.0]
-    p.resetBaseVelocity(pendulum_id, pend_lin, constrained_ang)
-
-
-reset_pendulum_state()
-
 
 Kp_base = np.array([120, 80, 60, 45, 30, 20, 12], dtype=float)
 Kd_base = np.array([18, 14, 12, 10, 8, 6, 4], dtype=float)
@@ -268,6 +150,37 @@ joint_ids = [joint_name_to_index[name] for name in model_joint_names]
 full_arm_indices = [full_joint_names.index(name) for name in model_joint_names]
 n = len(joint_ids)
 print("Number of controlled joints:", n)
+
+
+def enforce_single_axis_rotation(dt):
+    global pend_axis_angle
+    pend_pos, _ = p.getBasePositionAndOrientation(pendulum_id)
+    lin_vel, ang_vel = p.getBaseVelocity(pendulum_id)
+    pend_axis_angle += ang_vel[0] * dt
+    constrained_quat = p.getQuaternionFromEuler([pend_axis_angle, 0.0, 0.0])
+    p.resetBasePositionAndOrientation(pendulum_id, pend_pos, constrained_quat)
+    constrained_ang_vel = [ang_vel[0], 0.0, 0.0]
+    p.resetBaseVelocity(pendulum_id, lin_vel, constrained_ang_vel)
+
+
+def reset_environment_state():
+    global pend_axis_angle
+    for idx, joint in enumerate(joint_ids):
+        p.resetJointState(
+            robot_id,
+            joint,
+            targetValue=float(default_joint_pose[idx]),
+            targetVelocity=0.0,
+        )
+    anchor = p.getLinkState(robot_id, pendulum_parent_link, computeForwardKinematics=True)
+    anchor_pos = anchor[4]
+    pend_axis_angle = np.pi + np.random.uniform(-0.03, 0.01)
+    orientation = p.getQuaternionFromEuler([pend_axis_angle, 0.0, 0.0])
+    p.resetBasePositionAndOrientation(pendulum_id, anchor_pos, orientation)
+    p.resetBaseVelocity(pendulum_id, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0])
+
+
+reset_environment_state()
 
 for j in joint_ids:
     p.setJointMotorControl2(
@@ -345,30 +258,10 @@ while True:
     x_des = target_x
     y_des = p.readUserDebugParameter(y_slider)
     z_des = target_z
-    reset_val = p.readUserDebugParameter(reset_pendulum_slider)
-    save_val = p.readUserDebugParameter(save_state_slider)
-    load_val = p.readUserDebugParameter(load_state_slider)
-    reset_env_val = p.readUserDebugParameter(reset_env_slider)
-    if reset_val > 0.5 and reset_slider_prev <= 0.5:
-        reset_pendulum_state(inverted=False)
-    elif reset_val < -0.5 and reset_slider_prev >= -0.5:
-        reset_pendulum_state(inverted=True)
-    reset_slider_prev = reset_val
-    if save_val > 0.5 and save_slider_prev <= 0.5:
-        saved_state = capture_current_state()
-        print(
-            "State saved: joints=",
-            np.round(saved_state["joint_positions"], 4),
-            "pend_angle=%.4f" % saved_state["pend_axis_angle"]
-        )
-    save_slider_prev = save_val
-    if load_val > 0.5 and load_slider_prev <= 0.5 and saved_state is not None:
-        apply_saved_state(saved_state)
-        print("State loaded.")
-    load_slider_prev = load_val
-    if reset_env_val > 0.5 and reset_env_prev <= 0.5:
-        reset_environment_from_saved_state()
-    reset_env_prev = reset_env_val
+    respawn_val = p.readUserDebugParameter(respawn_slider)
+    if respawn_val > 0.5 and respawn_prev <= 0.5:
+        reset_environment_state()
+    respawn_prev = respawn_val
 
     target_pos = [x_des, y_des, z_des]
 
