@@ -64,6 +64,7 @@ class Task7PendulumEnv(gym.Env):
         sim_substeps=6,
         penalize_position=True,
         render_mode=None,
+        initial_pendulum_angle=None,
     ):
         super().__init__()
         self.gui = gui
@@ -72,6 +73,9 @@ class Task7PendulumEnv(gym.Env):
         self.sim_substeps = sim_substeps
         self.penalize_position = penalize_position
         self.render_mode = render_mode
+        self.initial_pendulum_angle = (
+            float(initial_pendulum_angle) if initial_pendulum_angle is not None else None
+        )
         self.dt = 1.0 / 240.0
         self.ik_integration_gain = 9.0
         self.action_speed_scale = 0.0
@@ -209,7 +213,9 @@ class Task7PendulumEnv(gym.Env):
             self.robot_id, self.pendulum_parent_link, computeForwardKinematics=True
         )
         anchor_pos = anchor[4]
-        if self.should_balance:
+        if self.initial_pendulum_angle is not None:
+            self.pend_axis_angle = float(self.initial_pendulum_angle)
+        elif self.should_balance:
             self.pend_axis_angle = math.pi + np.random.uniform(-0.03, 0.01)
         else:
             self.pend_axis_angle = self.pendulum_down_axis_angle + np.random.uniform(-0.03, 0.03)
@@ -388,6 +394,13 @@ class Task7PendulumEnv(gym.Env):
     def close(self):
         if p.isConnected():
             p.disconnect()
+
+    def set_initial_pendulum_angle(self, angle=None):
+        """Set or clear a deterministic initial pendulum angle (radians) for resets."""
+        if angle is None:
+            self.initial_pendulum_angle = None
+        else:
+            self.initial_pendulum_angle = float(angle)
 
 
 if __name__ == "__main__":
