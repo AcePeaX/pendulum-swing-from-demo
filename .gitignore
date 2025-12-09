@@ -4,3 +4,4 @@ videos
 data/test_*
 meshes
 runs
+__pycache__
