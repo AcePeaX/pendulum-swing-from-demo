@@ -39,6 +39,12 @@ physicsClient = p.connect(p.GUI)
 assert physicsClient >= 0, "PyBullet connection failed"
 
 p.setAdditionalSearchPath(pybullet_data.getDataPath())
+p.resetDebugVisualizerCamera(
+    cameraDistance=2.432,
+    cameraYaw=89.2,
+    cameraPitch=-21.4,
+    cameraTargetPosition=[0.0, 0.0, 0.3]
+)
 
 
 # Gravity
@@ -64,10 +70,12 @@ reset_pendulum_slider = p.addUserDebugParameter("Reset pendulum (toggle)", -1, 1
 save_state_slider = p.addUserDebugParameter("Save robot state", 0, 1, 0)
 load_state_slider = p.addUserDebugParameter("Load saved state", 0, 1, 0)
 reset_env_slider = p.addUserDebugParameter("Reset from saved pose", 0, 1, 0)
+camera_print_slider = p.addUserDebugParameter("Print camera pose", 0, 1, 0)
 reset_slider_prev = 0.0
 save_slider_prev = 0.0
 load_slider_prev = 0.0
 reset_env_prev = 0.0
+camera_print_prev = 0.0
 default_joint_pose = np.array([0.5499, 0.3302, -0.7612, -1.5311, 0.4585, 1.4043, -0.0314], dtype=float)
 saved_state = {
     "joint_positions": default_joint_pose.copy(),
@@ -171,6 +179,18 @@ def enforce_single_axis_rotation(dt):
     p.resetBaseVelocity(pendulum_id, lin_vel, constrained_ang_vel)
 
 
+def print_camera_pose():
+    info = p.getDebugVisualizerCamera()
+    dist = info[10]
+    yaw = info[8]
+    pitch = info[9]
+    target = info[11]
+    print(
+        "Camera pose -> dist=%.3f yaw=%.2f pitch=%.2f target=%s" %
+        (dist, yaw, pitch, target)
+    )
+
+
 def reset_environment_from_saved_state():
     global pend_axis_angle, saved_state
     if saved_state is None:
@@ -245,7 +265,7 @@ Kd_base = np.array([18, 14, 12, 10, 8, 6, 4], dtype=float)
 controller_gain_scale = 0.6
 Kp = controller_gain_scale * Kp_base
 Kd = controller_gain_scale * Kd_base
-max_tau = np.array([180, 150, 120, 90, 60, 40, 25], dtype=float)
+max_tau = np.array([180, 150, 120, 90, 60, 40, 25], dtype=float) * 1.5
 joint_damping = 0.05
 
 full_model = pin.buildModelFromUrdf(robot_urdf_path)
@@ -343,6 +363,7 @@ while True:
     save_val = p.readUserDebugParameter(save_state_slider)
     load_val = p.readUserDebugParameter(load_state_slider)
     reset_env_val = p.readUserDebugParameter(reset_env_slider)
+    camera_val = p.readUserDebugParameter(camera_print_slider)
     if reset_val > 0.5 and reset_slider_prev <= 0.5:
         reset_pendulum_state(inverted=False)
     elif reset_val < -0.5 and reset_slider_prev >= -0.5:
@@ -363,6 +384,9 @@ while True:
     if reset_env_val > 0.5 and reset_env_prev <= 0.5:
         reset_environment_from_saved_state()
     reset_env_prev = reset_env_val
+    if camera_val > 0.5 and camera_print_prev <= 0.5:
+        print_camera_pose()
+    camera_print_prev = camera_val
 
     target_pos = [x_des, y_des, z_des]
 
