@@ -88,12 +88,15 @@ target_sphere = p.createMultiBody(
 
 n_joints = p.getNumJoints(robot_id)
 joint_name_to_index = {}
+link_name_to_index = {}
 
 for i in range(n_joints):
     info = p.getJointInfo(robot_id, i)
     name = info[1].decode()
+    link_name = info[12].decode()
     if info[2] == p.JOINT_REVOLUTE:
         joint_name_to_index[name] = i
+    link_name_to_index[link_name] = i
 
 # Load standalone pendulum and attach via spherical constraint
 pendulum_urdf_path = os.path.abspath("pendulum.urdf")
@@ -127,6 +130,7 @@ for link_idx in range(n_joints):
 p.setCollisionFilterPair(pendulum_id, plane, -1, -1, enableCollision=0)
 
 pend_axis_angle = 0.0
+ee_reference_position = np.array([0.50046, 0.00443, 0.58009], dtype=float)
 
 Kp_base = np.array([120, 80, 60, 45, 30, 20, 12], dtype=float)
 Kd_base = np.array([18, 14, 12, 10, 8, 6, 4], dtype=float)
@@ -164,7 +168,7 @@ def enforce_single_axis_rotation(dt):
 
 
 def reset_environment_state():
-    global pend_axis_angle
+    global pend_axis_angle, ee_reference_position
     for idx, joint in enumerate(joint_ids):
         p.resetJointState(
             robot_id,
@@ -178,6 +182,9 @@ def reset_environment_state():
     orientation = p.getQuaternionFromEuler([pend_axis_angle, 0.0, 0.0])
     p.resetBasePositionAndOrientation(pendulum_id, anchor_pos, orientation)
     p.resetBaseVelocity(pendulum_id, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0])
+    ee_state = p.getLinkState(robot_id, link_name_to_index["lbr_iiwa_link_7"], computeLinkVelocity=False)
+    ee_reference_position = np.array(ee_state[0], dtype=float)
+    print("\n\nRESET\n")
 
 
 reset_environment_state()
@@ -262,6 +269,34 @@ while True:
     if respawn_val > 0.5 and respawn_prev <= 0.5:
         reset_environment_state()
     respawn_prev = respawn_val
+
+    pendulum_pos, pendulum_quat = p.getBasePositionAndOrientation(pendulum_id)
+    pendulum_lin_vel, pendulum_ang_vel = p.getBaseVelocity(pendulum_id)
+    pendulum_angle = pend_axis_angle - np.pi
+    pendulum_angle = (pendulum_angle + np.pi) % (2 * np.pi) - np.pi
+    pendulum_velocity = pendulum_ang_vel[0]
+
+    ee_state = p.getLinkState(robot_id, link_name_to_index["lbr_iiwa_link_7"], computeLinkVelocity=1)
+    ee_position = np.array(ee_state[0], dtype=float) - ee_reference_position
+    ee_velocity = np.array(ee_state[6], dtype=float)
+
+    env_state = {
+        "pendulum_angle": pendulum_angle,
+        "pendulum_velocity": pendulum_velocity,
+        "pendulum_position": np.array(pendulum_pos, dtype=float),
+        "pendulum_linear_velocity": np.array(pendulum_lin_vel, dtype=float),
+        "end_effector_position": ee_position,
+        "end_effector_velocity": ee_velocity,
+    }
+
+    print(
+        "state | pend_theta=%.3f pend_theta_dot=%.3f ee_pos=%s ee_vel=%s" % (
+            env_state["pendulum_angle"],
+            env_state["pendulum_velocity"],
+            np.round(env_state["end_effector_position"], 5),
+            np.round(env_state["end_effector_velocity"], 5),
+        )
+    )
 
     target_pos = [x_des, y_des, z_des]
 
