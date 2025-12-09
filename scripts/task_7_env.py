@@ -54,7 +54,7 @@ class Task7Observation:
 
 
 class Task7PendulumEnv(gym.Env):
-    metadata = {"render_modes": ["human"]}
+    metadata = {"render_modes": ["human", "rgb_array"]}
 
     def __init__(
         self,
@@ -63,6 +63,7 @@ class Task7PendulumEnv(gym.Env):
         gui=False,
         sim_substeps=6,
         penalize_position=True,
+        render_mode=None,
     ):
         super().__init__()
         self.gui = gui
@@ -70,7 +71,10 @@ class Task7PendulumEnv(gym.Env):
         self.max_steps = max_steps
         self.sim_substeps = sim_substeps
         self.penalize_position = penalize_position
+        self.render_mode = render_mode
         self.dt = 1.0 / 240.0
+        self.ik_integration_gain = 9.0
+        self.action_speed_scale = 0.0
         self.client = p.connect(p.GUI if gui else p.DIRECT)
         p.resetSimulation()
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
@@ -88,12 +92,16 @@ class Task7PendulumEnv(gym.Env):
         self.plane_id = p.loadURDF("plane.urdf")
         robot_urdf_path = os.path.join(pybullet_data.getDataPath(), "kuka_iiwa/model.urdf")
         self.robot_id = p.loadURDF(robot_urdf_path, basePosition=[0, 0, 0], useFixedBase=True)
+        self.camera_distance = 2.032
+        self.camera_yaw = 89.2
+        self.camera_pitch = -21.4
+        self.camera_target = [0.0, 0.0, 0.5]
         if self.gui:
             p.resetDebugVisualizerCamera(
-                cameraDistance=2.432,
-                cameraYaw=89.2,
-                cameraPitch=-21.4,
-                cameraTargetPosition=[0.0, 0.0, 0.3],
+                cameraDistance=self.camera_distance,
+                cameraYaw=self.camera_yaw,
+                cameraPitch=self.camera_pitch,
+                cameraTargetPosition=self.camera_target,
             )
 
         self.target_x = 0.5
@@ -184,6 +192,7 @@ class Task7PendulumEnv(gym.Env):
         super().reset(seed=seed)
         self.step_count = 0
         self.current_y_target = 0.0
+        self.action_speed_scale = 0.0
         self._reset_environment_state()
         obs = self._get_observation()
         return obs.vector.copy(), {"state": obs}
@@ -220,6 +229,7 @@ class Task7PendulumEnv(gym.Env):
         elif action_value == 1:
             self.current_y_target = Y_MAX
         # action_value == 0 keeps the previous target
+        self.action_speed_scale = float(np.clip(abs(action_value), 0.0, 1.0))
 
         for _ in range(self.sim_substeps):
             self._apply_control_step()
@@ -285,7 +295,9 @@ class Task7PendulumEnv(gym.Env):
         self.ee_task.set_target(T_target)
 
         dq = pink.solve_ik(self.configuration, self.tasks, self.dt, solver="quadprog")
-        self.configuration.integrate_inplace(dq, self.dt * 9)
+        integration_factor = self.dt * self.ik_integration_gain * self.action_speed_scale
+        if integration_factor > 0.0:
+            self.configuration.integrate_inplace(dq, integration_factor)
         q_des = wrap_joint_positions(self.configuration.q.copy(), self.lower_limits, self.upper_limits)
         v_des = np.zeros_like(q_des)
 
@@ -343,8 +355,35 @@ class Task7PendulumEnv(gym.Env):
             end_effector_position=ee_position.copy(),
         )
 
-    def render(self, mode="human"):
-        return
+    def render(self, mode=None):
+        mode = mode or self.render_mode or "human"
+        if mode == "rgb_array":
+            view_matrix = p.computeViewMatrixFromYawPitchRoll(
+                cameraTargetPosition=self.camera_target,
+                distance=self.camera_distance,
+                yaw=self.camera_yaw,
+                pitch=self.camera_pitch,
+                roll=0.0,
+                upAxisIndex=2,
+            )
+            projection_matrix = p.computeProjectionMatrixFOV(
+                fov=60.0,
+                aspect=16.0 / 9.0,
+                nearVal=0.05,
+                farVal=5.0,
+            )
+            width = 960
+            height = 540
+            renderer = p.ER_BULLET_HARDWARE_OPENGL if self.gui else p.ER_TINY_RENDERER
+            _, _, rgba, _, _ = p.getCameraImage(
+                width=width,
+                height=height,
+                viewMatrix=view_matrix,
+                projectionMatrix=projection_matrix,
+                renderer=renderer,
+            )
+            return np.reshape(rgba, (height, width, 4))
+        return None
 
     def close(self):
         if p.isConnected():
