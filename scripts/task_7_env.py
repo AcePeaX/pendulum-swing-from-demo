@@ -65,6 +65,7 @@ class Task7PendulumEnv(gym.Env):
         penalize_position=True,
         render_mode=None,
         initial_pendulum_angle=None,
+        continuous_actions=False,
     ):
         super().__init__()
         self.gui = gui
@@ -76,6 +77,7 @@ class Task7PendulumEnv(gym.Env):
         self.initial_pendulum_angle = (
             float(initial_pendulum_angle) if initial_pendulum_angle is not None else None
         )
+        self.continuous_actions = bool(continuous_actions)
         self.dt = 1.0 / 240.0
         self.ik_integration_gain = 9.0
         self.action_speed_scale = 0.0
@@ -83,7 +85,10 @@ class Task7PendulumEnv(gym.Env):
         p.resetSimulation()
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         self._build_world()
-        self.action_space = spaces.Discrete(3)
+        if self.continuous_actions:
+            self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
+        else:
+            self.action_space = spaces.Discrete(3)
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(STATE_SIZE,), dtype=np.float32
         )
@@ -228,13 +233,19 @@ class Task7PendulumEnv(gym.Env):
         self.ee_reference_position = np.array(ee_state[0], dtype=float)
 
     def step(self, action):
-        action = int(action)
-        action_value = [-1, 0, 1][action]
-        if action_value == -1:
-            self.current_y_target = -Y_MAX
-        elif action_value == 1:
-            self.current_y_target = Y_MAX
-        # action_value == 0 keeps the previous target
+        if self.continuous_actions:
+            action_arr = np.asarray(action, dtype=float).reshape(-1)
+            action_scalar = action_arr[0] if action_arr.size else 0.0
+            action_value = float(np.clip(action_scalar, -1.0, 1.0))
+            self.current_y_target = action_value * Y_MAX
+        else:
+            action_idx = int(action)
+            action_value = [-1, 0, 1][action_idx]
+            if action_value == -1:
+                self.current_y_target = -Y_MAX
+            elif action_value == 1:
+                self.current_y_target = Y_MAX
+            # action_value == 0 keeps the previous target
         self.action_speed_scale = float(np.clip(abs(action_value), 0.0, 1.0))
 
         for _ in range(self.sim_substeps):
