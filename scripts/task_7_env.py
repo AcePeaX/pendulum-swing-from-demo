@@ -69,6 +69,7 @@ default_joint_pose = np.array([0.5499, 0.3302, -0.7612, -1.5311, 0.4585, 1.4043,
 y_slider = p.addUserDebugParameter("Target y", -0.5, 0.5, target_y_default)
 respawn_slider = p.addUserDebugParameter("Reset environment", 0, 1, 0)
 respawn_prev = 0.0
+start_balance = True
 
 
 # Target desired
@@ -131,6 +132,7 @@ p.setCollisionFilterPair(pendulum_id, plane, -1, -1, enableCollision=0)
 
 pend_axis_angle = 0.0
 ee_reference_position = np.array([0.50046, 0.00443, 0.58009], dtype=float)
+pendulum_down_axis_angle = 0.0  # world-x pointing down
 
 Kp_base = np.array([120, 80, 60, 45, 30, 20, 12], dtype=float)
 Kd_base = np.array([18, 14, 12, 10, 8, 6, 4], dtype=float)
@@ -178,7 +180,10 @@ def reset_environment_state():
         )
     anchor = p.getLinkState(robot_id, pendulum_parent_link, computeForwardKinematics=True)
     anchor_pos = anchor[4]
-    pend_axis_angle = np.pi + np.random.uniform(-0.03, 0.01)
+    if start_balance:
+        pend_axis_angle = np.pi + np.random.uniform(-0.03, 0.01)
+    else:
+        pend_axis_angle = pendulum_down_axis_angle + np.random.uniform(-0.03, 0.03)
     orientation = p.getQuaternionFromEuler([pend_axis_angle, 0.0, 0.0])
     p.resetBasePositionAndOrientation(pendulum_id, anchor_pos, orientation)
     p.resetBaseVelocity(pendulum_id, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0])
