@@ -4,7 +4,7 @@ from task_7_env import Task7PendulumEnv
 
 
 def main():
-    env = Task7PendulumEnv(max_steps=100, should_balance=False, gui=True)
+    env = Task7PendulumEnv(max_steps=100, should_balance=True, gui=True)
     obs, info = env.reset()
     print("Initial observation norm:", np.linalg.norm(obs))
     episode_return = 0.0

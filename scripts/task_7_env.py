@@ -41,6 +41,7 @@ Y_MAX = 0.45
 Y_LIMIT = 0.5
 ANGLE_FAILURE_LIMIT = math.radians(20.0)
 SWING_REWARD_LIMIT = math.radians(20.0)
+POSITION_PENALTY_GAIN = 1.0
 STATE_SIZE = 14  # pend angle/vel + (pend pos, pend lin vel, ee pos, ee vel)
 
 
@@ -55,12 +56,20 @@ class Task7Observation:
 class Task7PendulumEnv(gym.Env):
     metadata = {"render_modes": ["human"]}
 
-    def __init__(self, max_steps=600, should_balance=True, gui=False, sim_substeps=12):
+    def __init__(
+        self,
+        max_steps=600,
+        should_balance=True,
+        gui=False,
+        sim_substeps=12,
+        penalize_position=True,
+    ):
         super().__init__()
         self.gui = gui
         self.should_balance = should_balance
         self.max_steps = max_steps
         self.sim_substeps = sim_substeps
+        self.penalize_position = penalize_position
         self.dt = 1.0 / 240.0
         self.client = p.connect(p.GUI if gui else p.DIRECT)
         p.resetSimulation()
@@ -236,6 +245,11 @@ class Task7PendulumEnv(gym.Env):
             reward = 1.0
         else:
             reward = 0.0
+
+        if self.penalize_position:
+            distance = float(np.linalg.norm(obs.end_effector_position))
+            position_penalty = min(0.5, POSITION_PENALTY_GAIN * distance)
+            reward -= position_penalty
 
         info = {
             "failure": failure,
