@@ -15,3 +15,4 @@ pin-pink
 qpsolvers[quadprog]
 robot_descriptions
 tensorboard
+casadi
