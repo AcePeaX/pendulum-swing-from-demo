@@ -289,7 +289,10 @@ class Task7PendulumEnv(gym.Env):
             action_arr = np.asarray(action, dtype=float).reshape(-1)
             action_scalar = action_arr[0] if action_arr.size else 0.0
             action_value = float(np.clip(action_scalar, -1.0, 1.0))
-            self.current_y_target = action_value * Y_MAX
+            if abs(action_value) < 1e-8:
+                self.current_y_target = float(self._get_end_effector_world_position()[1])
+            else:
+                self.current_y_target = action_value * Y_MAX
         else:
             action_idx = int(action)
             action_value = [-1, 0, 1][action_idx]
@@ -297,7 +300,8 @@ class Task7PendulumEnv(gym.Env):
                 self.current_y_target = -Y_MAX
             elif action_value == 1:
                 self.current_y_target = Y_MAX
-            # action_value == 0 keeps the previous target
+            else:
+                self.current_y_target = float(self._get_end_effector_world_position()[1])
         self.action_speed_scale = float(np.clip(abs(action_value), 0.0, 1.0))
 
         for _ in range(self.sim_substeps):
@@ -359,14 +363,18 @@ class Task7PendulumEnv(gym.Env):
         self.configuration = pink.Configuration(self.reduced_model, self.reduced_data, q_model.copy())
         self.posture_task.set_target(self.configuration.q.copy())
 
-        target_pos = np.array([self.target_x, self.current_y_target, self.target_z], dtype=float)
+        desired_target_pos = np.array([self.target_x, self.current_y_target, self.target_z], dtype=float)
+        ee_state = p.getLinkState(
+            self.robot_id, self.link_name_to_index["lbr_iiwa_link_7"], computeForwardKinematics=True
+        )
+        ee_current_pos = np.array(ee_state[0], dtype=float)
+        axis_blend = np.array([5.0, float(self.action_speed_scale), 1.0], dtype=float)
+        target_pos = ee_current_pos + axis_blend * (desired_target_pos - ee_current_pos)
         T_target = pin.SE3(np.eye(3), target_pos)
         self.ee_task.set_target(T_target)
 
         dq = pink.solve_ik(self.configuration, self.tasks, self.dt, solver="quadprog")
-        integration_factor = self.dt * self.ik_integration_gain * self.action_speed_scale
-        if integration_factor > 0.0:
-            self.configuration.integrate_inplace(dq, integration_factor)
+        self.configuration.integrate_inplace(dq, self.dt * self.ik_integration_gain)
         q_des = wrap_joint_positions(self.configuration.q.copy(), self.lower_limits, self.upper_limits)
         v_des = np.zeros_like(q_des)
 
@@ -423,6 +431,12 @@ class Task7PendulumEnv(gym.Env):
             pendulum_velocity=pendulum_velocity,
             end_effector_position=ee_position.copy(),
         )
+
+    def _get_end_effector_world_position(self) -> np.ndarray:
+        ee_state = p.getLinkState(
+            self.robot_id, self.link_name_to_index["lbr_iiwa_link_7"], computeForwardKinematics=True
+        )
+        return np.array(ee_state[0], dtype=float)
 
     def render(self, mode=None):
         mode = mode or self.render_mode or "human"
