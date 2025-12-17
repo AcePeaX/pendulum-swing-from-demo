@@ -36,7 +36,7 @@ z_slider = p.addUserDebugParameter("Target z",  0.02, 2.0, 0.6)
 
 
 # Target desired
-target_radius = 0.07
+target_radius = 0.01
 
 target_visual = p.createVisualShape(
     shapeType=p.GEOM_SPHERE,

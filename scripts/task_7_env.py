@@ -12,6 +12,11 @@ import pinocchio as pin
 import pink
 from pink.tasks import FrameTask, PostureTask
 
+try:
+    from PIL import Image
+except ImportError:  # pragma: no cover - optional dependency
+    Image = None
+
 
 def wrap_joint_positions(values, lower_limits, upper_limits):
     wrapped = np.array(values, dtype=float)
@@ -208,6 +213,50 @@ class Task7PendulumEnv(gym.Env):
         self._reset_environment_state()
         obs = self._get_observation()
         return obs.vector.copy(), {"state": obs}
+
+    def capture_snapshot(self, file_path=None, width=960, height=720):
+        """Capture an RGBA frame from the current camera pose with transparent background."""
+        if Image is None and file_path is not None:
+            raise RuntimeError("Pillow is required to save snapshots (pip install pillow).")
+        original_rgba = None
+        for shape in p.getVisualShapeData(self.plane_id) or []:
+            if shape[1] == -1:
+                original_rgba = shape[7]
+                break
+        if original_rgba is not None:
+            p.changeVisualShape(
+                self.plane_id,
+                -1,
+                rgbaColor=(original_rgba[0], original_rgba[1], original_rgba[2], 0.0),
+            )
+        view_matrix = p.computeViewMatrixFromYawPitchRoll(
+            cameraTargetPosition=self.camera_target,
+            distance=self.camera_distance,
+            yaw=self.camera_yaw,
+            pitch=self.camera_pitch,
+            roll=0.0,
+            upAxisIndex=2,
+        )
+        projection_matrix = p.computeProjectionMatrixFOV(
+            fov=50.0, aspect=float(width) / float(height), nearVal=0.01, farVal=5.0
+        )
+        flags = p.ER_NO_SEGMENTATION_MASK
+        try:
+            _, _, rgba_pixels, _, _ = p.getCameraImage(
+                width,
+                height,
+                view_matrix,
+                projection_matrix,
+                renderer=p.ER_BULLET_HARDWARE_OPENGL,
+                flags=flags,
+            )
+        finally:
+            if original_rgba is not None:
+                p.changeVisualShape(self.plane_id, -1, rgbaColor=original_rgba)
+        rgba = np.array(rgba_pixels, dtype=np.uint8).reshape((height, width, 4))
+        if file_path is not None:
+            Image.fromarray(rgba, mode="RGBA").save(file_path)
+        return rgba
 
     def _reset_environment_state(self):
         for idx, joint in enumerate(self.joint_ids):

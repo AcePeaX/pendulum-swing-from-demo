@@ -87,7 +87,7 @@ saved_state = {
 
 
 # Target desired
-target_radius = 0.07
+target_radius = 0.01
 
 target_visual = p.createVisualShape(
     shapeType=p.GEOM_SPHERE,
